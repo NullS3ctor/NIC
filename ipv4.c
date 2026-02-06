@@ -22,23 +22,6 @@ uint16_t ipv4_checksum(void *vdata, size_t length) {
     return ~sum;
 }
 
-// Función para preparar el paquete IP
-void build_ipv4_packet(struct ipv4_header *ip, uint32_t src_ip, uint32_t dst_ip, uint8_t protocol, uint16_t payload_len) {
-    ip->version_ihl = (4 << 4) | 5; // Versión 4, IHL 5 (20 bytes)
-    ip->type_of_service = 0;
-    // El tamaño total incluye la cabecera IP (20 bytes) + el payload
-    ip->total_length = htons(sizeof(struct ipv4_header) + payload_len);
-    ip->identification = htons(0x1234); 
-    ip->flags_fragment_offset = 0; // No fragmentación
-    ip->time_to_live = 64;
-    ip->protocol = protocol; // 1 para ICMP, 6 para TCP, 17 para UDP
-    ip->source_address = src_ip;      // Debe venir ya en network byte order
-    ip->destination_address = dst_ip; // Debe venir ya en network byte order
-    
-    // Calcular el checksum con el campo de checksum en 0
-    ip->header_checksum = 0;
-    ip->header_checksum = ipv4_checksum(ip, sizeof(struct ipv4_header));
-}
 
 void ipv4_send(nic_device_t *nic, uint32_t dst_ip, uint8_t protocol, const void *payload, uint16_t payload_len) {
     unsigned char buffer [2048];
