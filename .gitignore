@@ -1,3 +1,5 @@
 a.out
 *.o
 networking
+post_log.txt
+test_server.sh
