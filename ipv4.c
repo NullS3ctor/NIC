@@ -1,9 +1,13 @@
 #include "ipv4.h"
 #include "interface.h"
 #include "icmp.h"
+#include "arp.h"
 #include <arpa/inet.h>
 #include <string.h>
 #include <stdio.h>
+
+
+
 
 /**
  * Calcula el checksum de Internet (RFC 1071) para la cabecera IP.
@@ -26,52 +30,64 @@ uint16_t ipv4_checksum(void *vdata, size_t length) {
     return ~sum;
 }
 
-/**
- * Encapsula un payload en un paquete IPv4 y lo envía a través de la NIC.
- */
-void ipv4_send(nic_device_t *nic, uint32_t dst_ip, uint8_t protocol, const void *payload, uint16_t payload_len) {
-    unsigned char buffer[2048];
-    struct ipv4_header *ip_hdr = (struct ipv4_header *)buffer;
-    
-    // 1. Construir la cabecera IP
-    ip_hdr->version_ihl = (4 << 4) | 5; // Versión 4, IHL 5 (20 bytes)
-    ip_hdr->type_of_service = 0;
-    ip_hdr->total_length = htons(sizeof(struct ipv4_header) + payload_len);
-    ip_hdr->identification = htons(0); 
-    ip_hdr->flags_fragment_offset = 0; // Sin fragmentación
-    ip_hdr->time_to_live = 64;         // TTL estándar
-    ip_hdr->protocol = protocol;       // 1 para ICMP, 6 para TCP, etc.
+// Definición local de la cabecera Ethernet (14 bytes)
+struct ethernet_frame {
+    uint8_t dst_mac[6];
+    uint8_t src_mac[6];
+    uint16_t type;
+} __attribute__((packed));
 
-    // Direcciones IP (ya deben estar en network byte order)
-    ip_hdr->source_address = nic->ip_address;
-    ip_hdr->destination_address = dst_ip;
-
-    // Calcular el checksum de la cabecera
-    ip_hdr->header_checksum = 0;
-    ip_hdr->header_checksum = ipv4_checksum(ip_hdr, sizeof(struct ipv4_header));
-
-    // 2. Copiar el payload inmediatamente después de la cabecera
-    memcpy(buffer + sizeof(struct ipv4_header), payload, payload_len);
-
-    // 3. Preparar la trama Ethernet para el envío físico
-    unsigned char ethernet_buffer[2048];
-    unsigned char broadcast_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+void ipv4_send(nic_device_t *nic, uint32_t dst_ip, uint8_t protocol, const void *data, uint16_t data_len) {
     nic_driver_t *drv = nic_get_driver();
-    
-    // Montaje de la trama Ethernet (Capa 2)
-    memcpy(ethernet_buffer, broadcast_mac, 6);         // Destino (Broadcast por simplicidad)
-    memcpy(ethernet_buffer + 6, nic->mac_address, 6);  // Origen
-    uint16_t etype = htons(0x0800);                    // Ethertype: IPv4
-    memcpy(ethernet_buffer + 12, &etype, 2);
-    
-    // Copiar el paquete IP al payload de Ethernet
-    uint16_t ip_packet_len = sizeof(struct ipv4_header) + payload_len;
-    memcpy(ethernet_buffer + 14, buffer, ip_packet_len);
 
-    // Envío a través del driver de la NIC
-    drv->send_packet(nic, ethernet_buffer, ip_packet_len + 14);
+    // Convertimos a orden de host para la tabla ARP y para debug
+    uint32_t dst_ip_h = ntohl(dst_ip);
+
+    // 1. Intentar obtener la MAC de destino mediante la tabla ARP
+    uint8_t *dst_mac = arp_table_lookup(dst_ip_h);
+
+    if (dst_mac == NULL) {
+        struct in_addr a; a.s_addr = dst_ip;
+        printf("[IPv4] MAC desconocida para %s, enviando ARP Request...\n", inet_ntoa(a));
+        arp_send_request(drv, nic, dst_ip_h);
+        return;
+    }
+
+    // 2. Construimos el frame completo (Ethernet + IP)
+    uint16_t ip_len = sizeof(struct ipv4_header) + data_len;
+    uint16_t total_len = sizeof(struct ethernet_frame) + ip_len;
+    uint8_t buf[total_len];
+
+    // Punteros a las distintas partes del buffer
+    struct ethernet_frame *eth = (void*)buf;
+    struct ipv4_header *ip = (void*)(buf + sizeof(*eth));
+
+    // 3. Rellenar Ethernet
+    memcpy(eth->dst_mac, dst_mac, 6);
+    memcpy(eth->src_mac, nic->mac_address, 6);
+    eth->type = htons(ETH_P_IP);
+
+    // 4. Rellenar Header IPv4
+    ip->version_ihl = (4 << 4) | (sizeof(struct ipv4_header) / 4);
+    ip->type_of_service = 0;
+    ip->total_length = htons(ip_len);
+    ip->identification = htons(0);
+    ip->flags_fragment_offset = htons(0);
+    ip->time_to_live = 64;
+    ip->protocol = protocol;
+    ip->header_checksum = 0;
+    ip->source_address = nic->ip_address; // ya en network order
+    ip->destination_address = dst_ip;    // ya en network order
+    ip->header_checksum = ipv4_checksum(ip, sizeof(struct ipv4_header));
+
+    // 5. Copiar Payload (ICMP, TCP, etc.)
+    if (data && data_len > 0) {
+        memcpy(buf + sizeof(*eth) + sizeof(struct ipv4_header), data, data_len);
+    }
+
+    // 6. Enviar al driver
+    drv->send_packet(nic, buf, total_len);
 }
-
 /**
  * Procesa un paquete IPv4 entrante recibido desde la capa Ethernet.
  */

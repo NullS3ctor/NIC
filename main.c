@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
 
     // 2. Configurar la identidad de nuestra interfaz (Capa de Red)
     // Cambia esta IP por la que quieras que tenga tu programa
-    nic.ip_address = inet_addr("172.31.200.78");
+    nic.ip_address = inet_addr("192.168.72.132");
 
     // 3. Registrar el callback para que la NIC nos avise al recibir datos
     if (drv->ioctl(&nic, NIC_IOCTL_ADD_RX_CALLBACK, (void *)&received_packet) != STATUS_OK) {
@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
 
     // 4. PRUEBA DE ENVÍO
     // Vamos a enviar un mensaje "Hola" a una IP de prueba usando nuestra función ipv4_send
-    uint32_t ip_destino = inet_addr("172.31.207.255"); // IP de Broadcast o de otro equipo
+    uint32_t ip_destino = inet_addr("192.168.72.130"); // IP de Broadcast o de otro equipo
     char *mensaje = "Mensaje de prueba desde mi propio stack IP";
     
     printf("[TX] Enviando paquete IPv4...\n");

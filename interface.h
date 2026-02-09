@@ -9,6 +9,9 @@
 #define NIC_EXTRA_SIZE                  18  // Ethernet header + CRC 
 #define NIC_DEFAULT_MAC                 {0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x5E}
 
+// Ethertype values
+#define ETH_P_IP                        0x0800
+
 #define NIC_IOCTL_CHANGE_MAC            0x01
 #define NIC_IOCTL_SET_MTU               0x02
 #define NIC_IOCTL_GET_STATS             0x03
