@@ -10,6 +10,7 @@
 void ethernet_input_callback(const void *data, unsigned int len) {
     eth_frame_t frame;
     
+    // Convertimos los bytes crudos a nuestra estructura estructurada
     int payload_len = eth_read_frame((uint8_t*)data, len, &frame);
     
     if (payload_len < 0) return; // Ignorar basura
@@ -70,7 +71,8 @@ void ethernet_output(nic_driver_t *drv, nic_device_t *nic,  uint8_t *dest_mac, u
 }
 
 void on_tx_done(const void *data, unsigned int len) {
-    printf("[TX] Hardware notifica: El paquete ha salido del buffer.\n");
+    // Nota: En este driver específico, data viene como NULL en TX.
+    printf("[TX-INTERRUPT] Hardware notifica: El paquete ha salido del buffer.\n");
 }
 
 void on_error(const void *data, unsigned int len) {
