@@ -4,51 +4,35 @@
 #include <arpa/inet.h>
 #include <stdio.h>
 
+static struct arp_entry_t arp_table[ARP_TABLE_SIZE];
 
-// Ethernet frame header
-struct ethernet_frame { //14 bytes
-    uint8_t dst_mac[6]; // Destination MAC
-    uint8_t src_mac[6]; // Source MAC
-    uint16_t type; // Ethernet type (e.g., 0x0800 for IPv4, 0x0806 for ARP)
-} __attribute__((packed));
-
-
-// ARP packet structure
-struct arp_packet { //28 bytes
-    uint16_t htype;
-    uint16_t ptype;
-    uint8_t hlen;
-    uint8_t plen;
-    uint16_t oper;
-    uint8_t sha[6];
-    uint32_t spa;
-    uint8_t tha[6];
-    uint32_t tpa;
-} __attribute__((packed));
 
 /****************** TX Functions ******************/
-
+// Envía un ARP Request para resolver la MAC de una IP destino
 void arp_send_request(nic_driver_t *drv, nic_device_t *device, uint32_t target_ip) {
     uint8_t buf[42];
     struct ethernet_frame *eth = (void*)buf;
     struct arp_packet *arp = (void*)(buf + sizeof(*eth));
 
     uint8_t broadcast[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
-
+    
+    // Construimos la cabecera Ethernet
     memcpy(eth->dst_mac, broadcast, 6);
     memcpy(eth->src_mac, device->mac_address, 6);
     eth->type = htons(ETH_P_ARP);
-
+    
+    // Construimos el paquete ARP
     arp->htype = htons(1);
     arp->ptype = htons(0x0800);
     arp->hlen  = 6;
     arp->plen  = 4;
     arp->oper  = htons(ARP_REQUEST);
     memcpy(arp->sha, device->mac_address, 6);
-    arp->spa = inet_addr(device->ip_address);
+    arp->spa = device->ip_address;
     memset(arp->tha, 0, 6);
     arp->tpa = htonl(target_ip);
 
+    // Enviamos el paquete
     drv->send_packet(device, buf, sizeof(buf));
 
     printf("[ARP] Request: Who has %d.%d.%d.%d?\n",
@@ -56,25 +40,28 @@ void arp_send_request(nic_driver_t *drv, nic_device_t *device, uint32_t target_i
         (target_ip>>8)&0xFF,target_ip&0xFF);
 }
 
+// Envía un ARP Reply en respuesta a un Request recibido
 void arp_send_reply(nic_driver_t *drv, nic_device_t *device, uint8_t *target_mac, uint32_t target_ip) {
     uint8_t buf[42];
     struct ethernet_frame *eth = (void*)buf;
     struct arp_packet *arp = (void*)(buf + sizeof(*eth));
 
+    // Construimos la cabecera Ethernet
     memcpy(eth->dst_mac, target_mac, 6);
     memcpy(eth->src_mac, device->mac_address, 6);
     eth->type = htons(ETH_P_ARP);
 
+    // Construimos el paquete ARP
     arp->htype = htons(1);
     arp->ptype = htons(0x0800);
     arp->hlen  = 6;
     arp->plen  = 4;
     arp->oper  = htons(ARP_REPLY);
     memcpy(arp->sha, device->mac_address, 6);
-    arp->spa = inet_addr(device->ip_address);
+    arp->spa = device->ip_address;
     memcpy(arp->tha, target_mac, 6);
     arp->tpa = htonl(target_ip);
-
+    // Enviamos el paquete
     drv->send_packet(device, buf, sizeof(buf));
 
     printf("[ARP] Reply: %d.%d.%d.%d is at %02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -86,28 +73,8 @@ void arp_send_reply(nic_driver_t *drv, nic_device_t *device, uint8_t *target_mac
     arp_table_add(target_ip, target_mac);
 }
 
-
 /****************** RX Function ******************/
-/*
-void arp_rx(nic_device_t *nic, nic_driver_t *drv,
-            const uint8_t *frame, size_t len)
-{
-    struct arp_hdr *arp = (struct arp_hdr *)(frame + ETH_HDR_LEN);
-
-    if (ntohs(arp->oper) != ARP_REQUEST)
-        return;
-
-    if (arp->target_ip != htonl(MY_IP))
-        return;
-
-    arp_send_reply(
-        drv,
-        nic,
-        arp->sender_mac,
-        ntohl(arp->sender_ip)
-    );
-}
-*/
+// Procesa un paquete ARP recibido. Solo se llama desde main.c cuando llega un paquete con ethertype 0x0806
 void arp_rx(uint8_t *buf, unsigned int len) {
     if (len < sizeof(struct ethernet_frame) + sizeof(struct arp_packet)) return;
 
@@ -133,13 +100,13 @@ void arp_rx(uint8_t *buf, unsigned int len) {
     }
 }
 
-
-static arp_entry_t arp_table[ARP_TABLE_SIZE];
+/****************** ARP Table ******************/
 
 void arp_table_init(void) {
     memset(arp_table, 0, sizeof(arp_table)); // Vacía memoria
 }
 
+// Añade o actualiza una entrada en la tabla ARP
 void arp_table_add(uint32_t ip, uint8_t *mac) {
     for (int i = 0; i < ARP_TABLE_SIZE; i++) {
         if (!arp_table[i].valid) {
@@ -155,6 +122,7 @@ void arp_table_add(uint32_t ip, uint8_t *mac) {
     arp_table[0].valid = 1;
 }
 
+// Busca la MAC correspondiente a una IP en la tabla ARP. Devuelve NULL si no se encuentra.
 uint8_t *arp_table_lookup(uint32_t ip) {
     for (int i = 0; i < ARP_TABLE_SIZE; i++) {
         if (arp_table[i].valid && arp_table[i].ip == ip) {
@@ -164,6 +132,7 @@ uint8_t *arp_table_lookup(uint32_t ip) {
     return NULL;
 }
 
+// Imprime el contenido de la tabla ARP
 void arp_table_print(void) {
     printf("\nARP table:\n");
     printf("IP address        MAC address\n");

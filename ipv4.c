@@ -6,9 +6,6 @@
 #include <string.h>
 #include <stdio.h>
 
-
-
-
 /**
  * Calcula el checksum de Internet (RFC 1071) para la cabecera IP.
  * Se utiliza para verificar la integridad de la cabecera en la recepción.
@@ -29,13 +26,6 @@ uint16_t ipv4_checksum(void *vdata, size_t length) {
     }
     return ~sum;
 }
-
-// Definición local de la cabecera Ethernet (14 bytes)
-struct ethernet_frame {
-    uint8_t dst_mac[6];
-    uint8_t src_mac[6];
-    uint16_t type;
-} __attribute__((packed));
 
 void ipv4_send(nic_device_t *nic, uint32_t dst_ip, uint8_t protocol, const void *data, uint16_t data_len) {
     nic_driver_t *drv = nic_get_driver();
