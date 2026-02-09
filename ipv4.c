@@ -2,6 +2,7 @@
 #include "interface.h"
 #include "icmp.h"
 #include "arp.h"
+#include "tcp.h"  // <--- MODIFICACION: Incluir cabecera TCP
 #include <arpa/inet.h>
 #include <string.h>
 #include <stdio.h>
@@ -113,6 +114,16 @@ void ipv4_receive(nic_device_t *nic, const void *packet, unsigned int len) {
     if (hdr->protocol == 1) { 
         // Protocolo ICMP
         icmp_receive(nic, hdr->source_address, payload, payload_len);
+
+    /****************************************************************************
+     * INICIO DE LA MODIFICACION: Integración de la capa TCP
+     ****************************************************************************/
+    } else if (hdr->protocol == 6) { // El protocolo 6 es TCP
+        tcp_input(nic, hdr->source_address, payload, payload_len);
+    /****************************************************************************
+     * FIN DE LA MODIFICACION
+     ****************************************************************************/
+
     } else {
         // Otros protocolos (TCP/UDP/Experimental)
         struct in_addr src_addr;
