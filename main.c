@@ -1,120 +1,81 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+
 #include "interface.h"
-#include "ethernet.h"
-#include <stdlib.h>
-#include "hal.h"
+#include "ipv4.h"
 
+// Definimos la estructura Ethernet para poder acceder al ethertype y al payload
+struct ethernet_frame {
+    unsigned char dest_mac[6];
+    unsigned char src_mac[6];
+    unsigned short ethertype;
+    unsigned char payload[1500]; 
+} __attribute__((packed));
 
-void ethernet_input_callback(const void *data, unsigned int len) {
-    eth_frame_t frame;
-    
-    // Convertimos los bytes crudos a nuestra estructura estructurada
-    int payload_len = eth_read_frame((uint8_t*)data, len, &frame);
-    
-    if (payload_len < 0) return; // Ignorar basura
+// Variable global para que el callback pueda acceder a la IP de la NIC
+nic_device_t nic;
 
-    printf("\n[RX] Paquete recibido en el hilo del driver (%d bytes)\n", len);
-    printf("   > Origen:  %02x:%02x:%02x:%02x:%02x:%02x\n",
-           frame.src_mac[0], frame.src_mac[1], frame.src_mac[2],
-           frame.src_mac[3], frame.src_mac[4], frame.src_mac[5]);
-    printf("   > Destino: %02x:%02x:%02x:%02x:%02x:%02x\n",
-           frame.dest_mac[0], frame.dest_mac[1], frame.dest_mac[2],
-           frame.dest_mac[3], frame.dest_mac[4], frame.dest_mac[5]);
-    printf("   > Tipo:    0x%04x\n", frame.type);
+// CALLBACK DE RECEPCIÓN
+// Esta función se activa cada vez que llega CUALQUIER paquete a la tarjeta
+void received_packet(const void *data, unsigned int length) {
+    struct ethernet_frame *eth = (struct ethernet_frame *)data;
+    uint16_t type = ntohs(eth->ethertype);
 
-    switch (frame.type) {
-        case ETH_TYPE_ARP:
-            printf("   > Protocolo: ARP (0x0806)\n");
-            break;
-        case ETH_TYPE_IP:
-            printf("   > Protocolo: IP (0x0800)\n");
-            break;
-        default:
-            printf("   > Protocolo: Desconocido (0x%04x)\n", frame.type);
-    }
-    printf("-----------------------------------------------------------\n");
+    // Si es un paquete IPv4 (0x0800), se lo pasamos a la capa de red
+    if (type == 0x0800) {
+        // Pasamos el puntero al payload (donde empieza la cabecera IP) 
+        // y restamos los 14 bytes de la cabecera Ethernet
+        ipv4_receive(&nic, eth->payload, length - 14);
+    } 
+    // Aquí podrías añadir: else if (type == 0x0806) { arp_receive(...); }
 }
 
+int main(int argc, char* argv[]) {
+    nic_driver_t * drv = nic_get_driver();
 
-
-void ethernet_output(nic_driver_t *drv, nic_device_t *nic,  uint8_t *dest_mac, uint16_t tipo, 
-                     uint8_t *datos, int len) {
-    
-    if(!drv || !nic){
-        printf("[ETHERNET] Error: stack no inicializado\n");
-        return;
-    }
-    
-    uint8_t frame[2048];
-    
-    // Crear frame
-    int frame_len = eth_make_frame(frame, dest_mac, nic->mac_address, tipo, datos, len);
-    
-    // VERIFICAR: Imprimir antes de enviar
-    printf("Frame creado (%d bytes):\n", frame_len);
-    for (int i = 0; i < frame_len; i++) {
-        printf("%02x ", frame[i]);
-        if ((i + 1) % 16 == 0) printf("\n");
-    }
-    printf("\n");
-    
-    // Enviar
-    if(frame_len > 0){
-        printf("\n[MAIN] Ordenando envío al driver (%d bytes)...\n", frame_len);
-        drv->send_packet(nic, frame, frame_len);
-    } else {
-        printf("[ETHERNET] Frame inválido - descartado\n");
-    }
-    
-}
-
-void on_tx_done(const void *data, unsigned int len) {
-    // Nota: En este driver específico, data viene como NULL en TX.
-    printf("[TX-INTERRUPT] Hardware notifica: El paquete ha salido del buffer.\n");
-}
-
-void on_error(const void *data, unsigned int len) {
-    printf("[ETHERNET] Error en transmisión/recepción\n");
-}
-
-
-int main() {
-    // Inicializar NIC
-    nic_device_t nic;
-    nic_driver_t *drv = nic_get_driver();
-    
+    // 1. Inicializar la tarjeta de red (Capa física)
     if (drv->init(&nic) != STATUS_OK) {
-        printf("Error al inicializar NIC\n");
+        printf("Error: No se pudo inicializar la NIC. ¿Has usado sudo?\n");
         return -1;
     }
+
+    // 2. Configurar la identidad de nuestra interfaz (Capa de Red)
+    // Cambia esta IP por la que quieras que tenga tu programa
+    nic.ip_address = inet_addr("192.168.72.132");
+
+    // 3. Registrar el callback para que la NIC nos avise al recibir datos
+    if (drv->ioctl(&nic, NIC_IOCTL_ADD_RX_CALLBACK, (void *)&received_packet) != STATUS_OK) {
+        printf("Error al añadir el callback de recepción\n");
+        drv->shutdown(&nic);
+        return -1;
+    }
+
+    printf("--- STACK INICIALIZADO ---\n");
+    printf("Interface: %s\n", nic.name);
+    printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", 
+            nic.mac_address[0], nic.mac_address[1], nic.mac_address[2], 
+            nic.mac_address[3], nic.mac_address[4], nic.mac_address[5]);
+    printf("IP:  %s\n", inet_ntoa(*(struct in_addr *)&nic.ip_address));
+    printf("--------------------------\n");
+
+    // 4. PRUEBA DE ENVÍO
+    // Vamos a enviar un mensaje "Hola" a una IP de prueba usando nuestra función ipv4_send
+    uint32_t ip_destino = inet_addr("192.168.72.130"); // IP de Broadcast o de otro equipo
+    char *mensaje = "Mensaje de prueba desde mi propio stack IP";
     
-    printf("NIC inicializado\n");
-    printf("Tu MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-           nic.mac_address[0], nic.mac_address[1], nic.mac_address[2],
-           nic.mac_address[3], nic.mac_address[4], nic.mac_address[5]);
-    
-    // Registrar callbacks
-    drv->ioctl(&nic, NIC_IOCTL_ADD_RX_CALLBACK, (void*)ethernet_input_callback);
-    drv->ioctl(&nic, NIC_IOCTL_ADD_TX_CALLBACK, (void*)on_tx_done);
-    drv->ioctl(&nic, NIC_IOCTL_ADD_ERROR_CALLBACK, (void*)on_error);
-    
+    printf("[TX] Enviando paquete IPv4...\n");
+    // Protocolo 253 es para experimentación, payload_len es el tamaño del texto
+    ipv4_send(&nic, ip_destino, 253, mensaje, strlen(mensaje) + 1);
 
-    uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    char *mensaje = "Prueba hola";
+    printf("\nEscuchando tráfico IP... Presiona Enter para salir.\n");
+    getchar();
 
-   ethernet_output(
-        drv,
-        &nic,               // Puntero al dispositivo (para sacar mi MAC y el handle)
-        broadcast,          // MAC Destino
-        ETH_TYPE_ARP,      // Tipo de protocolo (0x9000 para pruebas)
-        (uint8_t*)mensaje,  // Payload
-        strlen(mensaje)     // Longitud del payload
-    );
+    // 5. Cerrar todo correctamente
+    drv->shutdown(&nic);
+    printf("NIC cerrada. ¡Adiós!\n");
 
-    printf("\nPresiona Enter para salir...\n");
-    while(getchar() != '\n');
-
-    //exit(0);
+    return 0;
 }
