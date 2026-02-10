@@ -88,7 +88,7 @@ void handle_request(const HttpRequest* request, char* response_buffer, size_t* r
 
 
 void handle_get(const HttpRequest* request, char* response_buffer, size_t* response_len){
-    char filepath[MAX_PATH];
+    char filepath[MAX_PATH + 1];
 
     snprintf(filepath, sizeof(filepath), ".%s", request->path);
     
@@ -133,7 +133,7 @@ void handle_get(const HttpRequest* request, char* response_buffer, size_t* respo
 
 
 void handle_head(const HttpRequest* request, char* response_buffer, size_t* response_len){
-    char filepath[MAX_PATH];
+    char filepath[MAX_PATH + 1];
 
     snprintf(filepath, sizeof(filepath), ".%s", request->path);
     
@@ -174,7 +174,7 @@ void handle_head(const HttpRequest* request, char* response_buffer, size_t* resp
 }
 
 void handle_delete(const HttpRequest* request, char* response_buffer, size_t* response_len){
-    char filepath[MAX_PATH];
+    char filepath[MAX_PATH + 1];
     snprintf(filepath, sizeof(filepath), ".%s", request->path);
     int header_len;
 
@@ -203,7 +203,7 @@ void handle_delete(const HttpRequest* request, char* response_buffer, size_t* re
 
 
 void handle_put(const HttpRequest* request, char* response_buffer, size_t* response_len){
-    char filepath[MAX_PATH];
+    char filepath[MAX_PATH + 1];
     snprintf(filepath, sizeof(filepath), ".%s", request->path);
 
     int header_len;
