@@ -1,8 +1,9 @@
-#include "ipv4.h"
-#include "interface.h"
-#include "icmp.h"
-#include "arp.h"
-#include "tcp.h"  // <--- MODIFICACION: Incluir cabecera TCP
+#include "core/ipv4.h"
+#include "core/ethernet.h"
+#include "drivers/interface.h"
+#include "core/icmp.h"
+#include "core/arp.h"
+#include "network/tcp.h"  // <--- MODIFICACION: Incluir cabecera TCP
 #include <arpa/inet.h>
 #include <string.h>
 #include <stdio.h>
@@ -31,12 +32,7 @@ uint16_t ipv4_checksum(void *vdata, size_t length) {
     return ~sum;
 }
 
-// Definición local de la cabecera Ethernet (14 bytes)
-struct ethernet_frame {
-    uint8_t dst_mac[6];
-    uint8_t src_mac[6];
-    uint16_t type;
-} __attribute__((packed));
+
 
 void ipv4_send(nic_device_t *nic, uint32_t dst_ip, uint8_t protocol, const void *data, uint16_t data_len) {
     nic_driver_t *drv = nic_get_driver();
@@ -54,21 +50,12 @@ void ipv4_send(nic_device_t *nic, uint32_t dst_ip, uint8_t protocol, const void 
         return;
     }
 
-    // 2. Construimos el frame completo (Ethernet + IP)
+    // 2. Construir cabecera IPv4 + datos
     uint16_t ip_len = sizeof(struct ipv4_header) + data_len;
-    uint16_t total_len = sizeof(struct ethernet_frame) + ip_len;
-    uint8_t buf[total_len];
+    uint8_t ip_payload[ip_len];
+    struct ipv4_header *ip = (void*)ip_payload;
 
-    // Punteros a las distintas partes del buffer
-    struct ethernet_frame *eth = (void*)buf;
-    struct ipv4_header *ip = (void*)(buf + sizeof(*eth));
-
-    // 3. Rellenar Ethernet
-    memcpy(eth->dst_mac, dst_mac, 6);
-    memcpy(eth->src_mac, nic->mac_address, 6);
-    eth->type = htons(ETH_P_IP);
-
-    // 4. Rellenar Header IPv4
+    // 3. Rellenar Header IPv4
     ip->version_ihl = (4 << 4) | (sizeof(struct ipv4_header) / 4);
     ip->type_of_service = 0;
     ip->total_length = htons(ip_len);
@@ -81,13 +68,17 @@ void ipv4_send(nic_device_t *nic, uint32_t dst_ip, uint8_t protocol, const void 
     ip->destination_address = dst_ip;    // ya en network order
     ip->header_checksum = ipv4_checksum(ip, sizeof(struct ipv4_header));
 
-    // 5. Copiar Payload (ICMP, TCP, etc.)
+    // 4. Copiar Payload (ICMP, TCP, etc.) al buffer de payload
     if (data && data_len > 0) {
-        memcpy(buf + sizeof(*eth) + sizeof(struct ipv4_header), data, data_len);
+        memcpy(ip_payload + sizeof(struct ipv4_header), data, data_len);
     }
 
+    // 5. Construir frame Ethernet con payload IPv4 usando la utilidad ethernet
+    uint8_t buf[ETH_HDR_LEN + ip_len];
+    int frame_len = eth_make_frame(buf, dst_mac, nic->mac_address, ETH_TYPE_IP, ip_payload, ip_len);
+
     // 6. Enviar al driver
-    drv->send_packet(nic, buf, total_len);
+    drv->send_packet(nic, buf, frame_len);
 }
 /**
  * Procesa un paquete IPv4 entrante recibido desde la capa Ethernet.

@@ -4,8 +4,8 @@
 #include <unistd.h>
 #include <stdio.h>
 
-#include "interface.h"
-#include "hal.h"
+#include "drivers/interface.h"
+#include "drivers/hal.h"
 
 typedef unsigned char flags_t;
 typedef enum {

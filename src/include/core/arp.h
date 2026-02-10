@@ -2,9 +2,7 @@
 #define _ARP_H
 
 #include <stdint.h>
-#include "config.h" 
-#include "interface.h"
-#include "arp_table.h"
+#include "drivers/interface.h"
 
 // Tipos de ARP
 #define ARP_REQUEST 1

@@ -77,3 +77,60 @@ Para resumir, el flujo de una petición HTTP ahora sería el siguiente:
 1.  Nuestra lógica de aplicación, tras generar la respuesta, llama a `tcp_send()`.
 2.  `tcp_send()` construye el paquete TCP, añade las cabeceras y se lo pasa a `ipv4_send()`.
 3.  `ipv4_send()` construye el paquete IP y lo envía a la red a través del driver de la NIC.
+
+## 5. Nueva Capa de Utilidad: Ethernet (`ethernet.c`, `ethernet.h`)
+
+### ¿Qué es?
+
+Se ha añadido un módulo de utilidad para el manejo de frames Ethernet (`ethernet.c` y `ethernet.h`). Este módulo proporciona funciones de alto nivel para crear y leer frames Ethernet sin necesidad de trabajar directamente con buffers crudos.
+
+### Componentes Clave
+
+- **`ethernet.h`**: Define la interfaz pública:
+    - **Constantes**: `ETH_MAC_LEN` (6 bytes), `ETH_HDR_LEN` (14 bytes), `ETH_MAX_DATA` (1500 bytes)
+    - **Tipos de protocolo**: `ETH_TYPE_IP` (0x0800), `ETH_TYPE_ARP` (0x0806)
+    - **`eth_frame_t`**: Estructura que representa un frame Ethernet completo
+
+- **`ethernet.c`**: Implementa dos funciones clave:
+    - **`eth_make_frame()`**: Construye un frame Ethernet a partir de MACs de origen/destino, tipo y datos
+    - **`eth_read_frame()`**: Parsea un buffer crudos para extraer los componentes del frame Ethernet
+
+### Función en el Proyecto
+
+Este módulo actúa como capa de abstracción para el manejo de frames Ethernet, permitiendo que capas superiores (ARP, IPv4) trabajen con Ethernet de forma más limpia y consistente. Las funciones proporcionan:
+- Conversión automática de orden de bytes (network byte order)
+- Validación de tamaños
+- Manejo centralizado de la estructura Ethernet
+
+### Cambios Realizados
+
+1. **Creación de archivos:**
+   - `src/core/ethernet.c`: Implementación de funciones Ethernet
+   - `src/include/core/ethernet.h`: Cabecera pública
+
+2. **Actualización de build:**
+   - **`Makefile`**: Se añadió `ethernet.c` a la lista de fuentes de la capa core para que se compile automáticamente
+
+3. **Actualización de includes:**
+   - **`ethernet.c`**: Actualizado para usar la ruta correcta `#include "core/ethernet.h"` manteniendo consistencia con la estructura del proyecto
+
+### Integración con Capas Existentes
+
+Tras la creación de este módulo, se ha refactorizado el código de las capas ARP e IPv4 para eliminar duplicidad:
+
+1. **`arp.c`**:
+   - **Antes**: Tenía su propia definición local de `struct ethernet_frame` y construía manualmente los frames Ethernet
+   - **Ahora**: Uso de `eth_make_frame()` en `arp_send_request()` y `arp_send_reply()` para construir frames Ethernet de forma centralizada
+   - **Ventaja**: Código más limpio, coherente y fácil de mantener
+
+2. **`ipv4.c`**:
+   - **Antes**: Definía localmente `struct ethernet_frame` y construía manualmente los frames Ethernet en `ipv4_send()`
+   - **Ahora**: Uso de `eth_make_frame()` en `ipv4_send()` para construir frames con el payload IPv4
+   - **Ventaja**: Eliminación de duplicidad, mantenimiento centralizado de la lógica Ethernet
+
+### Beneficios de la Refactorización
+
+- **DRY (Don't Repeat Yourself)**: La lógica de construcción de frames Ethernet está en un único lugar
+- **Mantenibilidad**: Cambios futuros en el formato Ethernet solo requieren modificar `ethernet.c`
+- **Consistencia**: Todas las capas usan la misma interfaz para crear frames Ethernet
+- **Validación**: `eth_make_frame()` valida automáticamente tamaños y límites

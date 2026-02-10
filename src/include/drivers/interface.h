@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <pthread.h>
-#include "hal.h"
+#include "drivers/hal.h"
 
 #define NIC_DEFAULT_MTU                 1500
 #define NIC_EXTRA_SIZE                  18  // Ethernet header + CRC 

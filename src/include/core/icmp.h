@@ -2,7 +2,7 @@
 #define ICMP_H
 
 #include <stdint.h>
-#include "hal.h" // O donde tengas definido nic_device_t o similar
+#include "drivers/hal.h" // O donde tengas definido nic_device_t o similar
 
 #define ICMP_TYPE_ECHO_REPLY   0
 #define ICMP_TYPE_ECHO_REQUEST 8

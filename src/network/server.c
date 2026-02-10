@@ -6,7 +6,7 @@
 #include <netinet/in.h>
 
 // Incluimos tu cabecera para poder llamar a tus funciones
-#include "http_server.h"
+#include "network/http_server.h"
 
 #define PORT 8080
 #define BUFFER_SIZE 8192  // 8KB de buffer para peticiones grandes

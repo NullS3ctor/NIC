@@ -1,5 +1,6 @@
-#include "tcp.h"
-#include "ipv4.h" // <--- MODIFICACION: Incluir para llamar a ipv4_send
+#include "network/tcp.h"
+#include "core/ipv4.h" // <--- MODIFICACION: Incluir para llamar a ipv4_send
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

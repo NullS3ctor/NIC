@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <stdio.h>
 
-#include "hal.h"
+#include "drivers/hal.h"
 
 struct device_handle {
     char name[HAL_IFACE_NAMELEN];

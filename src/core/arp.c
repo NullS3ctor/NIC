@@ -1,16 +1,9 @@
-#include "arp.h"
-#include "interface.h" 
+#include "core/arp.h"
+#include "core/ethernet.h"
+#include "drivers/interface.h" 
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdio.h>
-
-
-// Ethernet frame header
-struct ethernet_frame { //14 bytes
-    uint8_t dst_mac[6]; // Destination MAC
-    uint8_t src_mac[6]; // Source MAC
-    uint16_t type; // Ethernet type (e.g., 0x0800 for IPv4, 0x0806 for ARP)
-} __attribute__((packed));
 
 
 // ARP packet structure
@@ -29,27 +22,25 @@ struct arp_packet { //28 bytes
 /****************** TX Functions ******************/
 
 void arp_send_request(nic_driver_t *drv, nic_device_t *device, uint32_t target_ip) {
-    uint8_t buf[42];
-    struct ethernet_frame *eth = (void*)buf;
-    struct arp_packet *arp = (void*)(buf + sizeof(*eth));
-
     uint8_t broadcast[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+    
+    // Construir paquete ARP
+    struct arp_packet arp_data;
+    arp_data.htype = htons(1);
+    arp_data.ptype = htons(0x0800);
+    arp_data.hlen  = 6;
+    arp_data.plen  = 4;
+    arp_data.oper  = htons(ARP_REQUEST);
+    memcpy(arp_data.sha, device->mac_address, 6);
+    arp_data.spa = htonl(device->ip_address);
+    memset(arp_data.tha, 0, 6);
+    arp_data.tpa = htonl(target_ip);
 
-    memcpy(eth->dst_mac, broadcast, 6);
-    memcpy(eth->src_mac, device->mac_address, 6);
-    eth->type = htons(ETH_P_ARP);
-
-    arp->htype = htons(1);
-    arp->ptype = htons(0x0800);
-    arp->hlen  = 6;
-    arp->plen  = 4;
-    arp->oper  = htons(ARP_REQUEST);
-    memcpy(arp->sha, device->mac_address, 6);
-    arp->spa = inet_addr(device->ip_address);
-    memset(arp->tha, 0, 6);
-    arp->tpa = htonl(target_ip);
-
-    drv->send_packet(device, buf, sizeof(buf));
+    // Construir frame Ethernet con payload ARP
+    uint8_t buf[ETH_HDR_LEN + sizeof(struct arp_packet)];
+    int frame_len = eth_make_frame(buf, broadcast, device->mac_address, ETH_TYPE_ARP, &arp_data, sizeof(struct arp_packet));
+    
+    drv->send_packet(device, buf, frame_len);
 
     printf("[ARP] Request: Who has %d.%d.%d.%d?\n",
         (target_ip>>24)&0xFF,(target_ip>>16)&0xFF,
@@ -57,25 +48,23 @@ void arp_send_request(nic_driver_t *drv, nic_device_t *device, uint32_t target_i
 }
 
 void arp_send_reply(nic_driver_t *drv, nic_device_t *device, uint8_t *target_mac, uint32_t target_ip) {
-    uint8_t buf[42];
-    struct ethernet_frame *eth = (void*)buf;
-    struct arp_packet *arp = (void*)(buf + sizeof(*eth));
+    uint8_t buf[ETH_HDR_LEN + sizeof(struct arp_packet)];
+    // Construir paquete ARP
+    struct arp_packet arp_data;
+    arp_data.htype = htons(1);
+    arp_data.ptype = htons(0x0800);
+    arp_data.hlen  = 6;
+    arp_data.plen  = 4;
+    arp_data.oper  = htons(ARP_REPLY);
+    memcpy(arp_data.sha, device->mac_address, 6);
+    arp_data.spa = htonl(device->ip_address);
+    memcpy(arp_data.tha, target_mac, 6);
+    arp_data.tpa = target_ip;
 
-    memcpy(eth->dst_mac, target_mac, 6);
-    memcpy(eth->src_mac, device->mac_address, 6);
-    eth->type = htons(ETH_P_ARP);
-
-    arp->htype = htons(1);
-    arp->ptype = htons(0x0800);
-    arp->hlen  = 6;
-    arp->plen  = 4;
-    arp->oper  = htons(ARP_REPLY);
-    memcpy(arp->sha, device->mac_address, 6);
-    arp->spa = inet_addr(device->ip_address);
-    memcpy(arp->tha, target_mac, 6);
-    arp->tpa = htonl(target_ip);
-
-    drv->send_packet(device, buf, sizeof(buf));
+    // Construir frame Ethernet con payload ARP
+    int frame_len = eth_make_frame(buf, target_mac, device->mac_address, ETH_TYPE_ARP, &arp_data, sizeof(struct arp_packet));
+    
+    drv->send_packet(device, buf, frame_len);
 
     printf("[ARP] Reply: %d.%d.%d.%d is at %02X:%02X:%02X:%02X:%02X:%02X\n",
         (target_ip>>24)&0xFF,(target_ip>>16)&0xFF,
@@ -109,27 +98,32 @@ void arp_rx(nic_device_t *nic, nic_driver_t *drv,
 }
 */
 void arp_rx(uint8_t *buf, unsigned int len) {
-    if (len < sizeof(struct ethernet_frame) + sizeof(struct arp_packet)) return;
+    // 1. Usamos la constante ETH_HDR_LEN que ya tienes definida
+    if (len < ETH_HDR_LEN + sizeof(struct arp_packet)) return;
 
-    struct ethernet_frame *eth = (void*)buf; // apunta a la cabecera Ethernet al inicio del buffer.
-    struct arp_packet *arp = (void*)(buf + sizeof(*eth)); // apunta justo después de la cabecera Ethernet, donde empieza el paquete ARP.
+    // 2. Para acceder al tipo, mapeamos la cabecera manualmente 
+    // o usamos un puntero a los offsets de la trama
+    uint16_t eth_type = (buf[12] << 8) | buf[13]; // El EtherType está en los bytes 12 y 13
 
-    if (ntohs(eth->type) != ETH_P_ARP) return;
+    if (eth_type != 0x0806) return; // 0x0806 es el código para ARP (ETH_P_ARP)
+
+    // 3. Apuntamos al paquete ARP que empieza después de la cabecera Ethernet
+    struct arp_packet *arp = (void*)(buf + ETH_HDR_LEN);
 
     uint16_t oper = ntohs(arp->oper);
 
     // Solo procesamos Reply
-    if (oper == ARP_REPLY) {
+    if (oper == 0x0002) { // 0x0002 es ARP_REPLY
         uint32_t sender_ip = ntohl(arp->spa);
         uint8_t *sender_mac = arp->sha;
 
         arp_table_add(sender_ip, sender_mac);
 
         printf("[ARP RX] Reply from %d.%d.%d.%d is at %02X:%02X:%02X:%02X:%02X:%02X\n",
-            (sender_ip>>24)&0xFF,(sender_ip>>16)&0xFF,
-            (sender_ip>>8)&0xFF,sender_ip&0xFF,
-            sender_mac[0],sender_mac[1],sender_mac[2],
-            sender_mac[3],sender_mac[4],sender_mac[5]);
+            (sender_ip>>24)&0xFF, (sender_ip>>16)&0xFF,
+            (sender_ip>>8)&0xFF, sender_ip&0xFF,
+            sender_mac[0], sender_mac[1], sender_mac[2],
+            sender_mac[3], sender_mac[4], sender_mac[5]);
     }
 }
 

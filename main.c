@@ -4,8 +4,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-#include "interface.h"
-#include "ipv4.h"
+#include "drivers/interface.h"
+#include "core/ipv4.h"
 
 // Definimos la estructura Ethernet para poder acceder al ethertype y al payload
 struct ethernet_frame {
